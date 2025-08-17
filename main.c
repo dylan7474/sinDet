@@ -58,8 +58,13 @@ static bool keep_running = true;
 // Logging support
 #define MAX_LOG_LINES 20
 #define LINE_SPACING (FONT_SIZE + 4)
-static char log_lines[MAX_LOG_LINES][256];
-static SDL_Color log_colors[MAX_LOG_LINES];
+typedef struct {
+    char text[256];
+    SDL_Color color;
+    Uint32 expire_time; // 0 means persistent
+    int track_id;       // index of associated track or -1
+} LogEntry;
+static LogEntry log_entries[MAX_LOG_LINES];
 static int log_count = 0;
 
 // Detection persistence control
@@ -74,7 +79,8 @@ static double bandpass_high_hz = SINE_WAVE_MAX_HZ;
 void log_error(const char* msg);
 void audio_callback(void* userdata, Uint8* stream, int len);
 void render_text(const char* text, int x, int y, SDL_Color color);
-void add_log_line(const char* text, SDL_Color color);
+void add_log_line(const char* text, SDL_Color color, Uint32 expire_time, int track_id);
+void prune_expired_logs(Uint32 now);
 void update_track(double freq, double purity, Uint32 now);
 void cleanup();
 
@@ -218,14 +224,21 @@ int main(int argc, char* argv[]) {
                 if (!prev_active[i] || fabs(snapshot[i].freq - prev_freq[i]) > FREQUENCY_TOLERANCE) {
                     char log_text[128];
                     sprintf(log_text, "Detected %.2f Hz (%.2f%% purity)", snapshot[i].freq, snapshot[i].purity);
-                    add_log_line(log_text, (SDL_Color){0, 255, 0, 255});
+                    add_log_line(log_text, (SDL_Color){0, 255, 0, 255}, 0, i);
                 }
                 prev_active[i] = true;
                 prev_freq[i] = snapshot[i].freq;
             } else if (prev_active[i]) {
                 char log_text[128];
                 sprintf(log_text, "Lost %.2f Hz", prev_freq[i]);
-                add_log_line(log_text, (SDL_Color){255, 255, 0, 255});
+                Uint32 expire = SDL_GetTicks() + 3000;
+                add_log_line(log_text, (SDL_Color){255, 255, 0, 255}, expire, i);
+                for (int j = log_count - 1; j >= 0; --j) {
+                    if (log_entries[j].track_id == i && log_entries[j].expire_time == 0) {
+                        log_entries[j].expire_time = expire;
+                        break;
+                    }
+                }
                 prev_active[i] = false;
             }
         }
@@ -268,8 +281,9 @@ int main(int argc, char* argv[]) {
         }
 
         // Render log lines
+        prune_expired_logs(SDL_GetTicks());
         for (int i = 0; i < log_count; ++i) {
-            render_text(log_lines[i], 100, 340 + i * LINE_SPACING, log_colors[i]);
+            render_text(log_entries[i].text, 100, 340 + i * LINE_SPACING, log_entries[i].color);
         }
 
         // --- Render frequency spectrum visualization ---
@@ -483,22 +497,41 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
 }
 
 // --- Helper Functions ---
-void add_log_line(const char* text, SDL_Color color) {
+void add_log_line(const char* text, SDL_Color color, Uint32 expire_time, int track_id) {
     SDL_LockAudioDevice(deviceId); // Prevent race condition with audio thread
     if (log_count < MAX_LOG_LINES) {
-        strncpy(log_lines[log_count], text, sizeof(log_lines[log_count]) - 1);
-        log_lines[log_count][sizeof(log_lines[log_count]) - 1] = '\0';
-        log_colors[log_count] = color;
+        strncpy(log_entries[log_count].text, text, sizeof(log_entries[log_count].text) - 1);
+        log_entries[log_count].text[sizeof(log_entries[log_count].text) - 1] = '\0';
+        log_entries[log_count].color = color;
+        log_entries[log_count].expire_time = expire_time;
+        log_entries[log_count].track_id = track_id;
         log_count++;
     } else {
         for (int i = 1; i < MAX_LOG_LINES; ++i) {
-            strcpy(log_lines[i - 1], log_lines[i]);
-            log_colors[i - 1] = log_colors[i];
+            log_entries[i - 1] = log_entries[i];
         }
-        strncpy(log_lines[MAX_LOG_LINES - 1], text, sizeof(log_lines[MAX_LOG_LINES - 1]) - 1);
-        log_lines[MAX_LOG_LINES - 1][sizeof(log_lines[MAX_LOG_LINES - 1]) - 1] = '\0';
-        log_colors[MAX_LOG_LINES - 1] = color;
+        strncpy(log_entries[MAX_LOG_LINES - 1].text, text, sizeof(log_entries[MAX_LOG_LINES - 1].text) - 1);
+        log_entries[MAX_LOG_LINES - 1].text[sizeof(log_entries[MAX_LOG_LINES - 1].text) - 1] = '\0';
+        log_entries[MAX_LOG_LINES - 1].color = color;
+        log_entries[MAX_LOG_LINES - 1].expire_time = expire_time;
+        log_entries[MAX_LOG_LINES - 1].track_id = track_id;
     }
+    SDL_UnlockAudioDevice(deviceId);
+}
+
+void prune_expired_logs(Uint32 now) {
+    SDL_LockAudioDevice(deviceId);
+    int dst = 0;
+    for (int i = 0; i < log_count; ++i) {
+        if (log_entries[i].expire_time && now >= log_entries[i].expire_time) {
+            continue;
+        }
+        if (dst != i) {
+            log_entries[dst] = log_entries[i];
+        }
+        dst++;
+    }
+    log_count = dst;
     SDL_UnlockAudioDevice(deviceId);
 }
 
