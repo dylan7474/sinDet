@@ -28,9 +28,11 @@ make -f Makefile.win
 
 ## Controls
 
-- **Up/Down Arrow Keys**: Increase or decrease how long a tone must persist before it is reported.
-- **Left/Right Arrow Keys**: Decrease or increase input gain to adjust detection sensitivity.
 - **Esc**: Exit the application.
+- **Up/Down Arrow Keys**: Increase or decrease how long a tone must persist before it is reported.
+- **Left/Right Arrow Keys**: Decrease or increase input gain in 1 dB steps. Negative values attenuate the input.
+- **Z/X Keys**: Decrease or increase the lower cutoff of the band-pass filter.
+- **C/V Keys**: Decrease or increase the upper cutoff of the band-pass filter.
 
 ## Roadmap
 
