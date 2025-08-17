@@ -266,15 +266,16 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         }
     }
 
-    if (max_power > 0) {
-        for (int i = 0; i < FFT_SIZE / 2; ++i) {
-            magnitudes[i] /= max_power;
-        }
-    }
-
     if (max_index != -1 && total_power > 0) {
         double current_detected_freq = max_index * freq_resolution;
-        double purity = max_power / total_power;
+        double peak_power = 0.0;
+        for (int j = -1; j <= 1; ++j) {
+            int idx = max_index + j;
+            if (idx >= 0 && idx < FFT_SIZE / 2) {
+                peak_power += magnitudes[idx];
+            }
+        }
+        double purity = peak_power / total_power;
 
         Uint32 now = SDL_GetTicks();
         if (purity > DETECT_THRESHOLD &&
@@ -297,6 +298,12 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         } else {
             detection_start_time = 0;
             is_detecting_sine = false;
+        }
+    }
+
+    if (max_power > 0) {
+        for (int i = 0; i < FFT_SIZE / 2; ++i) {
+            magnitudes[i] /= max_power;
         }
     }
 }
