@@ -330,7 +330,6 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
     }
     fftw_execute(p);
 
-    double max_power = 0.0;
     double total_power = 0.0;
 
     double powers[FFT_SIZE / 2];
@@ -340,14 +339,23 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         double power = real * real + imag * imag;
         powers[i] = power;
         total_power += power;
-        if (power > max_power) {
-            max_power = power;
-        }
     }
 
-    if (max_power > 0) {
-        for (int i = 0; i < FFT_SIZE / 2; ++i) {
-            magnitudes[i] = powers[i] / max_power;
+    /*
+     * Normalize spectrum magnitudes against the theoretical maximum power of a
+     * full-scale sine wave so that input gain changes are reflected in the
+     * visualization. Previously the magnitudes were normalised by the maximum
+     * power of the current frame, which hid overall amplitude variations.
+     *
+     * For a Hann-windowed, full-scale sine wave the peak power is roughly
+     * (FFT_SIZE/4)^2.  Scaling by this constant keeps magnitudes in the
+     * 0.0-1.0 range while allowing gain adjustments to impact the display.
+     */
+    double max_possible_power = (FFT_SIZE / 4.0) * (FFT_SIZE / 4.0);
+    for (int i = 0; i < FFT_SIZE / 2; ++i) {
+        magnitudes[i] = powers[i] / max_possible_power;
+        if (magnitudes[i] > 1.0) {
+            magnitudes[i] = 1.0;
         }
     }
 
