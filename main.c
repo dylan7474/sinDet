@@ -78,6 +78,9 @@ static double input_gain_db = 0.0; // 0 dB default
 // Band-pass filter settings
 static double bandpass_low_hz = SINE_WAVE_MIN_HZ;
 static double bandpass_high_hz = SINE_WAVE_MAX_HZ;
+// Squelch settings
+static bool squelch_enabled = false;
+static double squelch_threshold = 0.02; // normalized 0.0-1.0
 
 // --- Function Prototypes ---
 void log_error(const char* msg);
@@ -223,6 +226,22 @@ int main(int argc, char* argv[]) {
                     sprintf(log_text, "Averaging %s", averaging_enabled ? "ON" : "OFF");
                     Uint32 expire = SDL_GetTicks() + 2000;
                     add_log_line(log_text, (SDL_Color){0, 255, 255, 255}, expire, -1);
+                } else if (event.key.keysym.sym == SDLK_s) {
+                    squelch_enabled = !squelch_enabled;
+                    char log_text[128];
+                    sprintf(log_text, "Squelch %s", squelch_enabled ? "ON" : "OFF");
+                    Uint32 expire = SDL_GetTicks() + 2000;
+                    add_log_line(log_text, (SDL_Color){0, 255, 255, 255}, expire, -1);
+                } else if (event.key.keysym.sym == SDLK_d) {
+                    if (squelch_threshold > 0.0) {
+                        squelch_threshold -= 0.01;
+                        if (squelch_threshold < 0.0) squelch_threshold = 0.0;
+                    }
+                } else if (event.key.keysym.sym == SDLK_f) {
+                    if (squelch_threshold < 1.0) {
+                        squelch_threshold += 0.01;
+                        if (squelch_threshold > 1.0) squelch_threshold = 1.0;
+                    }
                 }
             }
         }
@@ -269,21 +288,24 @@ int main(int argc, char* argv[]) {
         render_text("LEFT/RIGHT: adjust gain", 100, 120, color_white);
         render_text("Z/X: low cutoff  C/V: high cutoff", 100, 140, color_white);
         render_text("A: toggle averaging", 100, 160, color_white);
+        render_text("S/D/F: squelch toggle/adjust", 100, 180, color_white);
         char persist_text[80];
         sprintf(persist_text, "Persistence: %d ms", persistence_threshold_ms);
-        render_text(persist_text, 100, 180, color_white);
+        render_text(persist_text, 100, 200, color_white);
         char gain_text[80];
         sprintf(gain_text, "Gain: %.1f dB", input_gain_db);
-        render_text(gain_text, 100, 200, color_white);
+        render_text(gain_text, 100, 220, color_white);
         char band_text[120];
         sprintf(band_text, "Band-pass: %.0f-%.0f Hz", bandpass_low_hz, bandpass_high_hz);
-        render_text(band_text, 100, 220, color_white);
+        render_text(band_text, 100, 240, color_white);
         char avg_text[80];
         sprintf(avg_text, "Averaging: %s", averaging_enabled ? "ON" : "OFF");
-        render_text(avg_text, 100, 240, color_white);
-
+        render_text(avg_text, 100, 260, color_white);
+        char squelch_text[80];
+        sprintf(squelch_text, "Squelch: %s (%.0f%%)", squelch_enabled ? "ON" : "OFF", squelch_threshold * 100.0);
+        render_text(squelch_text, 100, 280, color_white);
         // Render detection result
-        int line_y = 260;
+        int line_y = 300;
         int active_count = 0;
         for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
             if (snapshot[i].active) {
@@ -302,7 +324,7 @@ int main(int argc, char* argv[]) {
         // Render log lines
         prune_expired_logs(SDL_GetTicks());
         for (int i = 0; i < log_count; ++i) {
-            render_text(log_entries[i].text, 100, 340 + i * LINE_SPACING, log_entries[i].color);
+            render_text(log_entries[i].text, 100, 400 + i * LINE_SPACING, log_entries[i].color);
         }
 
         // --- Render frequency spectrum visualization ---
@@ -436,7 +458,6 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         } else {
             avg_powers[i] = power;
         }
-        total_power += power;
         powers[i] = power;
     }
 
@@ -451,11 +472,18 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
      * 0.0-1.0 range while allowing gain adjustments to impact the display.
      */
     double max_possible_power = (FFT_SIZE / 4.0) * (FFT_SIZE / 4.0);
+    total_power = 0.0;
     for (int i = 0; i < FFT_SIZE / 2; ++i) {
-        magnitudes[i] = powers[i] / max_possible_power;
-        if (magnitudes[i] > 1.0) {
-            magnitudes[i] = 1.0;
+        double norm = powers[i] / max_possible_power;
+        if (norm > 1.0) {
+            norm = 1.0;
         }
+        if (squelch_enabled && norm < squelch_threshold) {
+            powers[i] = 0.0;
+            norm = 0.0;
+        }
+        magnitudes[i] = norm;
+        total_power += powers[i];
     }
 
     // Find top peaks while merging nearby bins to avoid duplicate detections
@@ -588,9 +616,10 @@ void render_text(const char* text, int x, int y, SDL_Color color) {
 }
 
 void sdl_log_filter(void* userdata, int category, SDL_LogPriority priority, const char* message) {
-    const char* ignore = "The key you just pressed is not recognized by SDL";
-    if (priority >= SDL_LOG_PRIORITY_ERROR &&
-        strstr(message, ignore) == NULL) {
+    if (strstr(message, "not recognized by SDL") != NULL) {
+        return; // suppress unrecognized key warnings
+    }
+    if (priority >= SDL_LOG_PRIORITY_ERROR) {
         fprintf(stderr, "%s\n", message);
     }
 }

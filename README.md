@@ -34,6 +34,7 @@ make -f Makefile.win
 - **Z/X Keys**: Decrease or increase the lower cutoff of the band-pass filter.
 - **C/V Keys**: Decrease or increase the upper cutoff of the band-pass filter.
 - **A Key**: Toggle an averaging filter that smooths the spectrum to reduce noise.
+- **S Key**: Toggle squelch. **D/F Keys**: Decrease or increase the squelch threshold.
 
 ## Roadmap
 
