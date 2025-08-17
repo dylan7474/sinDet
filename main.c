@@ -174,55 +174,31 @@ int main(int argc, char* argv[]) {
                     keep_running = false;
                 } else if (event.key.keysym.sym == SDLK_UP) {
                     persistence_threshold_ms += 50;
-                    char msg[64];
-                    sprintf(msg, "Persistence set to %d ms", persistence_threshold_ms);
-                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                 } else if (event.key.keysym.sym == SDLK_DOWN) {
                     if (persistence_threshold_ms > 50) {
                         persistence_threshold_ms -= 50;
-                        char msg[64];
-                        sprintf(msg, "Persistence set to %d ms", persistence_threshold_ms);
-                        add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                     }
                 } else if (event.key.keysym.sym == SDLK_RIGHT) {
                     input_gain_db += 1.0;
-                    char msg[64];
-                    sprintf(msg, "Gain set to %.1f dB", input_gain_db);
-                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                 } else if (event.key.keysym.sym == SDLK_LEFT) {
                     input_gain_db -= 1.0;
-                    char msg[64];
-                    sprintf(msg, "Gain set to %.1f dB", input_gain_db);
-                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                 } else if (event.key.keysym.sym == SDLK_z) {
                     if (bandpass_low_hz > SINE_WAVE_MIN_HZ) {
                         bandpass_low_hz -= 10.0;
                         if (bandpass_low_hz < SINE_WAVE_MIN_HZ) bandpass_low_hz = SINE_WAVE_MIN_HZ;
-                        char msg[64];
-                        sprintf(msg, "Band-pass low: %.0f Hz", bandpass_low_hz);
-                        add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                     }
                 } else if (event.key.keysym.sym == SDLK_x) {
                     if (bandpass_low_hz < bandpass_high_hz - 10.0) {
                         bandpass_low_hz += 10.0;
-                        char msg[64];
-                        sprintf(msg, "Band-pass low: %.0f Hz", bandpass_low_hz);
-                        add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                     }
                 } else if (event.key.keysym.sym == SDLK_c) {
                     if (bandpass_high_hz > bandpass_low_hz + 10.0) {
                         bandpass_high_hz -= 10.0;
-                        char msg[64];
-                        sprintf(msg, "Band-pass high: %.0f Hz", bandpass_high_hz);
-                        add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                     }
                 } else if (event.key.keysym.sym == SDLK_v) {
                     if (bandpass_high_hz < SINE_WAVE_MAX_HZ) {
                         bandpass_high_hz += 10.0;
                         if (bandpass_high_hz > SINE_WAVE_MAX_HZ) bandpass_high_hz = SINE_WAVE_MAX_HZ;
-                        char msg[64];
-                        sprintf(msg, "Band-pass high: %.0f Hz", bandpass_high_hz);
-                        add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                     }
                 }
             }
@@ -316,6 +292,17 @@ int main(int argc, char* argv[]) {
         }
         SDL_UnlockAudioDevice(deviceId);
         SDL_RenderDrawLines(renderer, points, FFT_SIZE / 2);
+
+        // Highlight band-pass region
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+        int band_start = VIS_PADDING + (int)((bandpass_low_hz / (SAMPLE_RATE / 2.0)) * vis_width);
+        int band_end = VIS_PADDING + (int)((bandpass_high_hz / (SAMPLE_RATE / 2.0)) * vis_width);
+        if (band_start < VIS_PADDING) band_start = VIS_PADDING;
+        if (band_end > VIS_PADDING + vis_width) band_end = VIS_PADDING + vis_width;
+        SDL_Rect band_rect = {band_start, vis_y_start, band_end - band_start, VIS_HEIGHT};
+        SDL_SetRenderDrawColor(renderer, 0, 255, 0, 50);
+        SDL_RenderFillRect(renderer, &band_rect);
+        SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
 
         // Highlight detected frequencies
         for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
