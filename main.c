@@ -22,6 +22,7 @@
 #define MAX_AMPLITUDE 32768.0 // Maximum value for a 16-bit signed integer
 #define DETECT_THRESHOLD 0.7   // A value from 0.0 to 1.0 for sine wave purity
 #define FREQUENCY_TOLERANCE 5.0 // Tolerance in Hz to avoid flickering output
+#define PEAK_SUPPRESS_BINS 2    // Number of neighbouring bins to suppress around a detected peak
 #define SINE_WAVE_MIN_HZ 20
 #define SINE_WAVE_MAX_HZ 20000
 #define FONT_SIZE 12
@@ -83,10 +84,12 @@ void add_log_line(const char* text, SDL_Color color, Uint32 expire_time, int tra
 void prune_expired_logs(Uint32 now);
 void update_track(double freq, double purity, Uint32 now);
 void cleanup();
+void sdl_log_filter(void* userdata, int category, SDL_LogPriority priority, const char* message);
 
 int main(int argc, char* argv[]) {
     // --- 1. Initialization ---
     // Suppress less important SDL log messages such as unrecognized key warnings
+    SDL_LogSetOutputFunction(sdl_log_filter, NULL);
     SDL_LogSetAllPriority(SDL_LOG_PRIORITY_ERROR);
     printf("Initializing SDL...\n");
     // Initialize both Audio and Video subsystems
@@ -434,26 +437,31 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         }
     }
 
-    // Find top peaks
+    // Find top peaks while merging nearby bins to avoid duplicate detections
     int top_indices[MAX_TRACKED_SINES];
-    double top_powers[MAX_TRACKED_SINES];
     for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
         top_indices[i] = -1;
-        top_powers[i] = 0.0;
     }
 
-    for (int i = 0; i < FFT_SIZE / 2; ++i) {
-        double power = powers[i];
-        // insert into top arrays if large
-        for (int j = 0; j < MAX_TRACKED_SINES; ++j) {
-            if (power > top_powers[j]) {
-                for (int k = MAX_TRACKED_SINES - 1; k > j; --k) {
-                    top_powers[k] = top_powers[k - 1];
-                    top_indices[k] = top_indices[k - 1];
-                }
-                top_powers[j] = power;
-                top_indices[j] = i;
-                break;
+    bool used[FFT_SIZE / 2] = {false};
+    for (int p = 0; p < MAX_TRACKED_SINES; ++p) {
+        int best = -1;
+        double best_power = 0.0;
+        for (int i = 1; i < FFT_SIZE / 2 - 1; ++i) {
+            if (used[i]) continue;
+            double power = powers[i];
+            if (power > best_power && power > powers[i - 1] && power >= powers[i + 1]) {
+                best_power = power;
+                best = i;
+            }
+        }
+        if (best == -1) {
+            break;
+        }
+        top_indices[p] = best;
+        for (int k = best - PEAK_SUPPRESS_BINS; k <= best + PEAK_SUPPRESS_BINS; ++k) {
+            if (k >= 0 && k < FFT_SIZE / 2) {
+                used[k] = true;
             }
         }
     }
@@ -556,6 +564,14 @@ void render_text(const char* text, int x, int y, SDL_Color color) {
 
     SDL_FreeSurface(surface);
     SDL_DestroyTexture(texture);
+}
+
+void sdl_log_filter(void* userdata, int category, SDL_LogPriority priority, const char* message) {
+    const char* ignore = "The key you just pressed is not recognized by SDL";
+    if (priority >= SDL_LOG_PRIORITY_ERROR &&
+        strstr(message, ignore) == NULL) {
+        fprintf(stderr, "%s\n", message);
+    }
 }
 
 void log_error(const char* msg) {
