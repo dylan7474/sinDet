@@ -29,6 +29,7 @@ make -f Makefile.win
 ## Controls
 
 - **Up/Down Arrow Keys**: Increase or decrease how long a tone must persist before it is reported.
+- **Left/Right Arrow Keys**: Decrease or increase input gain to adjust detection sensitivity.
 - **Esc**: Exit the application.
 
 ## Roadmap

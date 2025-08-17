@@ -64,6 +64,8 @@ static int log_count = 0;
 
 // Detection persistence control
 static int persistence_threshold_ms = 200; // default 0.2s
+// Input gain control
+static double input_gain = 1.0; // default no gain
 
 // --- Function Prototypes ---
 void log_error(const char* msg);
@@ -177,6 +179,18 @@ int main(int argc, char* argv[]) {
                         persistence_threshold_ms -= 50;
                         char msg[64];
                         sprintf(msg, "Persistence set to %d ms", persistence_threshold_ms);
+                        add_log_line(msg, (SDL_Color){200, 200, 200, 255});
+                    }
+                } else if (event.key.keysym.sym == SDLK_RIGHT) {
+                    input_gain += 0.1;
+                    char msg[64];
+                    sprintf(msg, "Gain set to %.1f", input_gain);
+                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
+                } else if (event.key.keysym.sym == SDLK_LEFT) {
+                    if (input_gain > 0.1) {
+                        input_gain -= 0.1;
+                        char msg[64];
+                        sprintf(msg, "Gain set to %.1f", input_gain);
                         add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                     }
                 }
@@ -326,7 +340,7 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
     Sint16* pcm_stream = (Sint16*)stream;
 
     for (int i = 0; i < CHUNK_SIZE; ++i) {
-        pcm_buffer[i] = ((double)pcm_stream[i] / MAX_AMPLITUDE) * hann_window[i];
+        pcm_buffer[i] = ((double)pcm_stream[i] / MAX_AMPLITUDE) * input_gain * hann_window[i];
     }
     fftw_execute(p);
 
