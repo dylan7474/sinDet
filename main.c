@@ -20,7 +20,7 @@
 #define FREQUENCY_TOLERANCE 5.0 // Tolerance in Hz to avoid flickering output
 #define SINE_WAVE_MIN_HZ 20
 #define SINE_WAVE_MAX_HZ 20000
-#define FONT_SIZE 24
+#define FONT_SIZE 16
 
 // --- Global Variables ---
 static SDL_AudioDeviceID deviceId = 0;
@@ -183,7 +183,7 @@ int main(int argc, char* argv[]) {
         render_text("Listening for sine waves...", 100, 100, color_white);
         render_text("Press ESC to exit.", 100, 150, color_white);
         char persist_text[80];
-        sprintf(persist_text, "Detection persistence: %d ms (UP/DOWN adjust)", persistence_threshold_ms);
+        sprintf(persist_text, "Detect period: %d ms (UP/DOWN keys)", persistence_threshold_ms);
         render_text(persist_text, 100, 200, color_white);
 
         // Render detection result
