@@ -20,7 +20,7 @@
 #define FREQUENCY_TOLERANCE 5.0 // Tolerance in Hz to avoid flickering output
 #define SINE_WAVE_MIN_HZ 20
 #define SINE_WAVE_MAX_HZ 20000
-#define FONT_SIZE 24
+#define FONT_SIZE 12
 
 // --- Global Variables ---
 static SDL_AudioDeviceID deviceId = 0;
