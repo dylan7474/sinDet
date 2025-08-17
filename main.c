@@ -65,6 +65,16 @@ static int log_count = 0;
 // Detection persistence control
 static int persistence_threshold_ms = 200; // default 0.2s
 
+// Gain control (decibels)
+static double gain_db = 0.0;
+#define GAIN_STEP_DB 1.0
+#define GAIN_MIN_DB -60.0
+#define GAIN_MAX_DB 20.0
+
+// Band-pass filter settings
+static double bandpass_low = SINE_WAVE_MIN_HZ;
+static double bandpass_high = SINE_WAVE_MAX_HZ;
+
 // --- Function Prototypes ---
 void log_error(const char* msg);
 void audio_callback(void* userdata, Uint8* stream, int len);
@@ -179,6 +189,63 @@ int main(int argc, char* argv[]) {
                         sprintf(msg, "Persistence set to %d ms", persistence_threshold_ms);
                         add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                     }
+                } else if (event.key.keysym.sym == SDLK_MINUS) {
+                    if (gain_db > GAIN_MIN_DB) {
+                        gain_db -= GAIN_STEP_DB;
+                    }
+                    char msg[64];
+                    sprintf(msg, "Gain set to %.1f dB", gain_db);
+                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
+                } else if (event.key.keysym.sym == SDLK_EQUALS) {
+                    if (gain_db < GAIN_MAX_DB) {
+                        gain_db += GAIN_STEP_DB;
+                    }
+                    char msg[64];
+                    sprintf(msg, "Gain set to %.1f dB", gain_db);
+                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
+                } else if (event.key.keysym.sym == SDLK_z) {
+                    if (bandpass_low > SINE_WAVE_MIN_HZ) {
+                        bandpass_low -= 10.0;
+                        if (bandpass_low < SINE_WAVE_MIN_HZ) {
+                            bandpass_low = SINE_WAVE_MIN_HZ;
+                        }
+                        if (bandpass_low >= bandpass_high) {
+                            bandpass_low = bandpass_high - 10.0;
+                        }
+                    }
+                    char msg[64];
+                    sprintf(msg, "Band-pass low set to %.0f Hz", bandpass_low);
+                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
+                } else if (event.key.keysym.sym == SDLK_x) {
+                    if (bandpass_low + 10.0 < bandpass_high) {
+                        bandpass_low += 10.0;
+                        if (bandpass_low >= bandpass_high) {
+                            bandpass_low = bandpass_high - 10.0;
+                        }
+                    }
+                    char msg[64];
+                    sprintf(msg, "Band-pass low set to %.0f Hz", bandpass_low);
+                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
+                } else if (event.key.keysym.sym == SDLK_c) {
+                    if (bandpass_high - 10.0 > bandpass_low) {
+                        bandpass_high -= 10.0;
+                        if (bandpass_high <= bandpass_low) {
+                            bandpass_high = bandpass_low + 10.0;
+                        }
+                    }
+                    char msg[64];
+                    sprintf(msg, "Band-pass high set to %.0f Hz", bandpass_high);
+                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
+                } else if (event.key.keysym.sym == SDLK_v) {
+                    if (bandpass_high < SINE_WAVE_MAX_HZ) {
+                        bandpass_high += 10.0;
+                        if (bandpass_high > SINE_WAVE_MAX_HZ) {
+                            bandpass_high = SINE_WAVE_MAX_HZ;
+                        }
+                    }
+                    char msg[64];
+                    sprintf(msg, "Band-pass high set to %.0f Hz", bandpass_high);
+                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
                 }
             }
         }
@@ -218,9 +285,15 @@ int main(int argc, char* argv[]) {
         char persist_text[80];
         sprintf(persist_text, "Detection persistence: %d ms (UP/DOWN adjust)", persistence_threshold_ms);
         render_text(persist_text, 100, 200, color_white);
+        char gain_text[80];
+        sprintf(gain_text, "Gain: %.1f dB (-/= adjust)", gain_db);
+        render_text(gain_text, 100, 250, color_white);
+        char band_text[80];
+        sprintf(band_text, "Band-pass: %.0f-%.0f Hz (Z/X low, C/V high)", bandpass_low, bandpass_high);
+        render_text(band_text, 100, 300, color_white);
 
         // Render detection result
-        int line_y = 250;
+        int line_y = 350;
         int active_count = 0;
         for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
             if (snapshot[i].active) {
@@ -238,7 +311,7 @@ int main(int argc, char* argv[]) {
 
         // Render log lines
         for (int i = 0; i < log_count; ++i) {
-            render_text(log_lines[i], 100, 300 + i * LINE_SPACING, log_colors[i]);
+            render_text(log_lines[i], 100, 400 + i * LINE_SPACING, log_colors[i]);
         }
 
         // --- Render frequency spectrum visualization ---
@@ -325,8 +398,9 @@ void update_track(double freq, double purity, Uint32 now) {
 void audio_callback(void* userdata, Uint8* stream, int len) {
     Sint16* pcm_stream = (Sint16*)stream;
 
+    double gain_factor = pow(10.0, gain_db / 20.0);
     for (int i = 0; i < CHUNK_SIZE; ++i) {
-        pcm_buffer[i] = ((double)pcm_stream[i] / MAX_AMPLITUDE) * hann_window[i];
+        pcm_buffer[i] = ((double)pcm_stream[i] / MAX_AMPLITUDE) * hann_window[i] * gain_factor;
     }
     fftw_execute(p);
 
@@ -335,9 +409,13 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
 
     double powers[FFT_SIZE / 2];
     for (int i = 0; i < FFT_SIZE / 2; ++i) {
+        double freq = i * freq_resolution;
         double real = out[i][0];
         double imag = out[i][1];
         double power = real * real + imag * imag;
+        if (freq < bandpass_low || freq > bandpass_high) {
+            power = 0.0;
+        }
         powers[i] = power;
         total_power += power;
         if (power > max_power) {
@@ -391,8 +469,8 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         }
         double purity = peak_power / total_power;
         if (purity > DETECT_THRESHOLD &&
-            freq >= SINE_WAVE_MIN_HZ &&
-            freq <= SINE_WAVE_MAX_HZ) {
+            freq >= bandpass_low &&
+            freq <= bandpass_high) {
             update_track(freq, purity, now);
         }
     }

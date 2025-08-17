@@ -29,7 +29,12 @@ make -f Makefile.win
 ## Controls
 
 - **Up/Down Arrow Keys**: Increase or decrease how long a tone must persist before it is reported.
+- **- / =**: Decrease or increase the input gain (supports negative values for attenuation).
+- **Z/X**: Lower or raise the band-pass filter's low cutoff frequency.
+- **C/V**: Lower or raise the band-pass filter's high cutoff frequency.
 - **Esc**: Exit the application.
+
+Current values for persistence, gain, and band-pass range are shown on screen while the app runs.
 
 ## Roadmap
 
