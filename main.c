@@ -80,6 +80,8 @@ void cleanup();
 
 int main(int argc, char* argv[]) {
     // --- 1. Initialization ---
+    // Suppress less important SDL log messages such as unrecognized key warnings
+    SDL_LogSetAllPriority(SDL_LOG_PRIORITY_ERROR);
     printf("Initializing SDL...\n");
     // Initialize both Audio and Video subsystems
     if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO) < 0) {
@@ -293,12 +295,26 @@ int main(int argc, char* argv[]) {
         SDL_UnlockAudioDevice(deviceId);
         SDL_RenderDrawLines(renderer, points, FFT_SIZE / 2);
 
-        // Highlight band-pass region
+        // Highlight band-pass region and block-color out-of-band areas
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
         int band_start = VIS_PADDING + (int)((bandpass_low_hz / (SAMPLE_RATE / 2.0)) * vis_width);
         int band_end = VIS_PADDING + (int)((bandpass_high_hz / (SAMPLE_RATE / 2.0)) * vis_width);
         if (band_start < VIS_PADDING) band_start = VIS_PADDING;
         if (band_end > VIS_PADDING + vis_width) band_end = VIS_PADDING + vis_width;
+
+        int vis_left = VIS_PADDING;
+        int vis_right = VIS_PADDING + vis_width;
+        if (band_start > vis_left) {
+            SDL_Rect left_rect = {vis_left, vis_y_start, band_start - vis_left, VIS_HEIGHT};
+            SDL_SetRenderDrawColor(renderer, 255, 0, 0, 50);
+            SDL_RenderFillRect(renderer, &left_rect);
+        }
+        if (band_end < vis_right) {
+            SDL_Rect right_rect = {band_end, vis_y_start, vis_right - band_end, VIS_HEIGHT};
+            SDL_SetRenderDrawColor(renderer, 255, 0, 0, 50);
+            SDL_RenderFillRect(renderer, &right_rect);
+        }
+
         SDL_Rect band_rect = {band_start, vis_y_start, band_end - band_start, VIS_HEIGHT};
         SDL_SetRenderDrawColor(renderer, 0, 255, 0, 50);
         SDL_RenderFillRect(renderer, &band_rect);
