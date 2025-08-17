@@ -7,7 +7,7 @@
 #include <signal.h>
 
 // Include the separate font header file that you have.
-// We will assume the font data is provided in this header file as 'font_data'.
+// We will assume the font data is provided in this header file.
 #include "font.h"
 
 // --- Configuration Constants ---
@@ -74,8 +74,8 @@ int main(int argc, char* argv[]) {
     }
 
     // --- 3. Font Setup ---
-    // Load the font from the font.h file
-    SDL_RWops* rw = SDL_RWFromConstMem(font_data, sizeof(font_data));
+    // Load the font from the embedded font data in font.h
+    SDL_RWops* rw = SDL_RWFromConstMem(font_ttf, sizeof(font_ttf));
     if (!rw) {
         log_error("Failed to create SDL_RWops from font data");
         cleanup();

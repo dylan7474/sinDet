@@ -6,7 +6,7 @@ CC = gcc
 TARGET = sinewave_detector
 SRCS = main.c
 CFLAGS = -Wall -O2 `sdl2-config --cflags` -I/usr/include/fftw3
-LDFLAGS = `sdl2-config --libs` -lfftw3 -lm
+LDFLAGS = `sdl2-config --libs` -lSDL2_ttf -lfftw3 -lm
 
 all: $(TARGET)
 
