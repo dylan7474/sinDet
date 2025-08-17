@@ -33,6 +33,7 @@ make -f Makefile.win
 - **Left/Right Arrow Keys**: Decrease or increase input gain in 1 dB steps. Negative values attenuate the input.
 - **Z/X Keys**: Decrease or increase the lower cutoff of the band-pass filter.
 - **C/V Keys**: Decrease or increase the upper cutoff of the band-pass filter.
+- **A Key**: Toggle an averaging filter that smooths the spectrum to reduce noise.
 
 ## Roadmap
 
