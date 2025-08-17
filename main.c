@@ -29,6 +29,7 @@
 
 #define VIS_HEIGHT 150         // Height of the visualization area
 #define VIS_PADDING 20         // Padding for the visualization
+#define AVERAGING_ALPHA 0.1     // Smoothing factor for optional averaging filter
 
 // --- Global Variables ---
 static SDL_AudioDeviceID deviceId = 0;
@@ -38,6 +39,8 @@ static fftw_plan p;
 static double freq_resolution;
 static double hann_window[FFT_SIZE];
 static double magnitudes[FFT_SIZE / 2]; // Stores normalized spectrum magnitudes for visualization
+static double avg_powers[FFT_SIZE / 2]; // Smoothed power spectrum when averaging filter is enabled
+static bool averaging_enabled = false;  // Toggle for averaging filter
 
 static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
@@ -214,6 +217,12 @@ int main(int argc, char* argv[]) {
                         bandpass_high_hz += 10.0;
                         if (bandpass_high_hz > SINE_WAVE_MAX_HZ) bandpass_high_hz = SINE_WAVE_MAX_HZ;
                     }
+                } else if (event.key.keysym.sym == SDLK_a) {
+                    averaging_enabled = !averaging_enabled;
+                    char log_text[128];
+                    sprintf(log_text, "Averaging %s", averaging_enabled ? "ON" : "OFF");
+                    Uint32 expire = SDL_GetTicks() + 2000;
+                    add_log_line(log_text, (SDL_Color){0, 255, 255, 255}, expire, -1);
                 }
             }
         }
@@ -416,9 +425,14 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         double freq = i * freq_resolution;
         if (freq < bandpass_low_hz || freq > bandpass_high_hz) {
             power = 0.0; // Apply band-pass filter in frequency domain
-        } else {
-            total_power += power;
         }
+        if (averaging_enabled) {
+            avg_powers[i] = AVERAGING_ALPHA * power + (1.0 - AVERAGING_ALPHA) * avg_powers[i];
+            power = avg_powers[i];
+        } else {
+            avg_powers[i] = power;
+        }
+        total_power += power;
         powers[i] = power;
     }
 
