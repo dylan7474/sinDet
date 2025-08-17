@@ -97,6 +97,9 @@ int main(int argc, char* argv[]) {
         log_error("Failed to initialize SDL");
         return 1;
     }
+    // SDL_Init may reset log settings; reapply the custom filter and priority
+    SDL_LogSetOutputFunction(sdl_log_filter, NULL);
+    SDL_LogSetAllPriority(SDL_LOG_PRIORITY_ERROR);
     // Initialize the SDL_ttf library for text rendering
     if (TTF_Init() == -1) {
         log_error("Failed to initialize SDL_ttf");
