@@ -5,6 +5,7 @@
 #include <math.h>
 #include <fftw3.h>
 #include <signal.h>
+#include <string.h>
 
 // Include the separate font header file that you have.
 // We will assume the font data is provided in this header file.
@@ -38,10 +39,22 @@ static double detected_magnitude = 0.0;
 static bool is_detecting_sine = false;
 static bool keep_running = true;
 
+// Logging support
+#define MAX_LOG_LINES 20
+#define LINE_SPACING (FONT_SIZE + 4)
+static char log_lines[MAX_LOG_LINES][256];
+static SDL_Color log_colors[MAX_LOG_LINES];
+static int log_count = 0;
+
+// Detection persistence control
+static int persistence_threshold_ms = 200; // default 0.2s
+static Uint32 detection_start_time = 0;
+
 // --- Function Prototypes ---
 void log_error(const char* msg);
 void audio_callback(void* userdata, Uint8* stream, int len);
 void render_text(const char* text, int x, int y, SDL_Color color);
+void add_log_line(const char* text, SDL_Color color);
 void cleanup();
 
 int main(int argc, char* argv[]) {
@@ -129,12 +142,37 @@ int main(int argc, char* argv[]) {
             if (event.type == SDL_QUIT) {
                 keep_running = false;
             } else if (event.type == SDL_KEYDOWN) {
-                // Exit on Escape key press
                 if (event.key.keysym.sym == SDLK_ESCAPE) {
                     keep_running = false;
+                } else if (event.key.keysym.sym == SDLK_UP) {
+                    persistence_threshold_ms += 50;
+                    char msg[64];
+                    sprintf(msg, "Persistence set to %d ms", persistence_threshold_ms);
+                    add_log_line(msg, (SDL_Color){200, 200, 200, 255});
+                } else if (event.key.keysym.sym == SDLK_DOWN) {
+                    if (persistence_threshold_ms > 50) {
+                        persistence_threshold_ms -= 50;
+                        char msg[64];
+                        sprintf(msg, "Persistence set to %d ms", persistence_threshold_ms);
+                        add_log_line(msg, (SDL_Color){200, 200, 200, 255});
+                    }
                 }
             }
         }
+
+        static bool last_detection = false;
+        static double last_logged_freq = 0.0;
+        if (is_detecting_sine) {
+            if (!last_detection || fabs(detected_freq - last_logged_freq) > FREQUENCY_TOLERANCE) {
+                char log_text[128];
+                sprintf(log_text, "Detected %.2f Hz (%.2f%%)", detected_freq, detected_magnitude);
+                add_log_line(log_text, (SDL_Color){0, 255, 0, 255});
+                last_logged_freq = detected_freq;
+            }
+        } else if (last_detection) {
+            add_log_line("Detection lost", (SDL_Color){255, 255, 0, 255});
+        }
+        last_detection = is_detecting_sine;
         
         // Clear the screen with a dark gray color
         SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
@@ -144,6 +182,9 @@ int main(int argc, char* argv[]) {
         SDL_Color color_white = {255, 255, 255, 255};
         render_text("Listening for sine waves...", 100, 100, color_white);
         render_text("Press ESC to exit.", 100, 150, color_white);
+        char persist_text[80];
+        sprintf(persist_text, "Detection persistence: %d ms (UP/DOWN adjust)", persistence_threshold_ms);
+        render_text(persist_text, 100, 200, color_white);
 
         // Render detection result
         char output_text[100];
@@ -156,7 +197,12 @@ int main(int argc, char* argv[]) {
             sprintf(output_text, "No pure sine wave detected. Listening...");
             result_color = (SDL_Color){255, 255, 0, 255}; // Yellow
         }
-        render_text(output_text, 100, 300, result_color);
+        render_text(output_text, 100, 250, result_color);
+
+        // Render log lines
+        for (int i = 0; i < log_count; ++i) {
+            render_text(log_lines[i], 100, 300 + i * LINE_SPACING, log_colors[i]);
+        }
         
         // Update the screen
         SDL_RenderPresent(renderer);
@@ -198,23 +244,49 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         double current_detected_freq = max_index * freq_resolution;
         double purity = (max_magnitude / total_power) * 100;
 
+        Uint32 now = SDL_GetTicks();
         if (purity > DETECT_THRESHOLD &&
             current_detected_freq >= SINE_WAVE_MIN_HZ &&
             current_detected_freq <= SINE_WAVE_MAX_HZ) {
-            
-            // Debounce the output to avoid flickering text
-            if (fabs(current_detected_freq - detected_freq) > FREQUENCY_TOLERANCE) {
-                detected_freq = current_detected_freq;
-                detected_magnitude = purity;
+
+            if (detection_start_time == 0) {
+                detection_start_time = now;
             }
-            is_detecting_sine = true;
+            Uint32 elapsed = now - detection_start_time;
+            if (elapsed >= (Uint32)persistence_threshold_ms) {
+                if (fabs(current_detected_freq - detected_freq) > FREQUENCY_TOLERANCE) {
+                    detected_freq = current_detected_freq;
+                    detected_magnitude = purity;
+                }
+                is_detecting_sine = true;
+            } else {
+                is_detecting_sine = false;
+            }
         } else {
+            detection_start_time = 0;
             is_detecting_sine = false;
         }
     }
 }
 
 // --- Helper Functions ---
+void add_log_line(const char* text, SDL_Color color) {
+    if (log_count < MAX_LOG_LINES) {
+        strncpy(log_lines[log_count], text, sizeof(log_lines[log_count]) - 1);
+        log_lines[log_count][sizeof(log_lines[log_count]) - 1] = '\0';
+        log_colors[log_count] = color;
+        log_count++;
+    } else {
+        for (int i = 1; i < MAX_LOG_LINES; ++i) {
+            strcpy(log_lines[i - 1], log_lines[i]);
+            log_colors[i - 1] = log_colors[i];
+        }
+        strncpy(log_lines[MAX_LOG_LINES - 1], text, sizeof(log_lines[MAX_LOG_LINES - 1]) - 1);
+        log_lines[MAX_LOG_LINES - 1][sizeof(log_lines[MAX_LOG_LINES - 1]) - 1] = '\0';
+        log_colors[MAX_LOG_LINES - 1] = color;
+    }
+}
+
 void render_text(const char* text, int x, int y, SDL_Color color) {
     SDL_Surface* surface = TTF_RenderText_Solid(font, text, color);
     if (!surface) {
