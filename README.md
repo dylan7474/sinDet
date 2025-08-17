@@ -1,18 +1,39 @@
 # sinDet
 
-A simple real-time sine wave detector that uses SDL2 for audio capture and display and FFTW3 for frequency analysis.
+sinDet is a simple real-time sine wave detector. It uses SDL2 for audio capture and display and FFTW3 for frequency analysis to show the strongest sine component in incoming audio.
 
 ## Building
 
-Ensure SDL2, SDL2_ttf, and FFTW3 development libraries are installed, then run:
+Run the optional configuration script to verify required tools and libraries:
 
+```sh
+./configure
 ```
+
+### Linux
+
+With dependencies installed, build using the default makefile:
+
+```sh
 make
 ```
 
-## Usage
+### Windows
 
-Execute the program with `./sinewave_detector`. Use the UP and DOWN arrow keys to adjust how long a tone must be present before it is reported.
+On Windows, use the alternative makefile:
 
-Each audio chunk is multiplied by a Hann window before the FFT is performed. Purity is calculated as the ratio of the peak spectral power to the total power, providing more reliable sine wave detection.
+```sh
+make -f Makefile.win
+```
+
+## Controls
+
+- **Up/Down Arrow Keys**: Increase or decrease how long a tone must persist before it is reported.
+- **Esc**: Exit the application.
+
+## Roadmap
+
+- Cross-platform packaging and binary releases.
+- Configurable detection thresholds and audio devices.
+- Frequency spectrum visualization and logging improvements.
 

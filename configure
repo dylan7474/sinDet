@@ -1,0 +1,35 @@
+#!/bin/sh
+# Simple configuration script to verify build dependencies for sinDet
+
+missing=false
+
+check_cmd() {
+    if ! command -v "$1" >/dev/null 2>&1; then
+        echo "Missing required tool: $1"
+        echo "  Install it, e.g. on Debian/Ubuntu: sudo apt install $2"
+        missing=true
+    fi
+}
+
+check_pkg() {
+    if ! pkg-config --exists "$1"; then
+        echo "Missing library: $1"
+        echo "  Install the development package, e.g. on Debian/Ubuntu: sudo apt install $2"
+        missing=true
+    fi
+}
+
+check_cmd gcc build-essential
+check_cmd sdl2-config libsdl2-dev
+check_cmd pkg-config pkg-config
+
+check_pkg SDL2_ttf libsdl2-ttf-dev
+check_pkg fftw3 libfftw3-dev
+
+if [ "$missing" = true ]; then
+    echo "\nOne or more required tools or libraries are missing."
+    exit 1
+else
+    echo "All required tools and libraries are available."
+    exit 0
+fi
