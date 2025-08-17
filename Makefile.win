@@ -1,0 +1,18 @@
+# Makefile for building sinDet on Windows
+# Cross-compiles using MinGW-w64 toolchain
+# Assumes SDL2, SDL2_ttf, and FFTW3 for Windows are installed in the standard
+# MinGW-w64 locations.
+
+CC = x86_64-w64-mingw32-gcc
+TARGET = sinDet.exe
+SRCS = main.c
+CFLAGS = -Wall -O2 -I/usr/x86_64-w64-mingw32/include/SDL2 -I/usr/x86_64-w64-mingw32/include
+LDFLAGS = -L/usr/x86_64-w64-mingw32/lib -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf -lfftw3-3 -lm
+
+all: $(TARGET)
+
+$(TARGET): $(SRCS)
+	$(CC) $(CFLAGS) $(SRCS) -o $(TARGET) $(LDFLAGS)
+
+clean:
+	rm -f $(TARGET)
