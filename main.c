@@ -42,10 +42,17 @@ static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
 static TTF_Font* font = NULL;
 
-// Global state variables for graphical output
-static double detected_freq = 0.0;
-static double detected_purity = 0.0;
-static bool is_detecting_sine = false;
+// Sine tracking structure
+#define MAX_TRACKED_SINES 5
+typedef struct {
+    double freq;
+    double purity;
+    Uint32 start_time;
+    Uint32 last_seen;
+    bool active;
+} SineTrack;
+
+static SineTrack tracks[MAX_TRACKED_SINES];
 static bool keep_running = true;
 
 // Logging support
@@ -57,13 +64,13 @@ static int log_count = 0;
 
 // Detection persistence control
 static int persistence_threshold_ms = 200; // default 0.2s
-static Uint32 detection_start_time = 0;
 
 // --- Function Prototypes ---
 void log_error(const char* msg);
 void audio_callback(void* userdata, Uint8* stream, int len);
 void render_text(const char* text, int x, int y, SDL_Color color);
 void add_log_line(const char* text, SDL_Color color);
+void update_track(double freq, double purity, Uint32 now);
 void cleanup();
 
 int main(int argc, char* argv[]) {
@@ -176,19 +183,29 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        static bool last_detection = false;
-        static double last_logged_freq = 0.0;
-        if (is_detecting_sine) {
-            if (!last_detection || fabs(detected_freq - last_logged_freq) > FREQUENCY_TOLERANCE) {
+        SineTrack snapshot[MAX_TRACKED_SINES];
+        SDL_LockAudioDevice(deviceId);
+        memcpy(snapshot, tracks, sizeof(tracks));
+        SDL_UnlockAudioDevice(deviceId);
+
+        static bool prev_active[MAX_TRACKED_SINES] = {false};
+        static double prev_freq[MAX_TRACKED_SINES] = {0.0};
+        for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
+            if (snapshot[i].active) {
+                if (!prev_active[i] || fabs(snapshot[i].freq - prev_freq[i]) > FREQUENCY_TOLERANCE) {
+                    char log_text[128];
+                    sprintf(log_text, "Detected %.2f Hz (%.2f%% purity)", snapshot[i].freq, snapshot[i].purity);
+                    add_log_line(log_text, (SDL_Color){0, 255, 0, 255});
+                }
+                prev_active[i] = true;
+                prev_freq[i] = snapshot[i].freq;
+            } else if (prev_active[i]) {
                 char log_text[128];
-                sprintf(log_text, "Detected %.2f Hz (%.2f%% purity)", detected_freq, detected_purity);
-                add_log_line(log_text, (SDL_Color){0, 255, 0, 255});
-                last_logged_freq = detected_freq;
+                sprintf(log_text, "Lost %.2f Hz", prev_freq[i]);
+                add_log_line(log_text, (SDL_Color){255, 255, 0, 255});
+                prev_active[i] = false;
             }
-        } else if (last_detection) {
-            add_log_line("Detection lost", (SDL_Color){255, 255, 0, 255});
         }
-        last_detection = is_detecting_sine;
         
         // Clear the screen with a dark gray color
         SDL_SetRenderDrawColor(renderer, 50, 50, 50, 255);
@@ -203,17 +220,21 @@ int main(int argc, char* argv[]) {
         render_text(persist_text, 100, 200, color_white);
 
         // Render detection result
-        char output_text[100];
-        SDL_Color result_color;
-
-        if (is_detecting_sine) {
-            sprintf(output_text, "Sine wave detected! Freq: %.2f Hz | Purity: %.2f%%", detected_freq, detected_purity);
-            result_color = (SDL_Color){0, 255, 0, 255}; // Green
-        } else {
-            sprintf(output_text, "No pure sine wave detected. Listening...");
-            result_color = (SDL_Color){255, 255, 0, 255}; // Yellow
+        int line_y = 250;
+        int active_count = 0;
+        for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
+            if (snapshot[i].active) {
+                char output_text[100];
+                sprintf(output_text, "Sine wave detected! Freq: %.2f Hz | Purity: %.2f%%", snapshot[i].freq, snapshot[i].purity);
+                render_text(output_text, 100, line_y, (SDL_Color){0, 255, 0, 255});
+                line_y += LINE_SPACING;
+                active_count++;
+            }
         }
-        render_text(output_text, 100, 250, result_color);
+        if (active_count == 0) {
+            render_text("No pure sine wave detected. Listening...", 100, line_y, (SDL_Color){255, 255, 0, 255});
+            line_y += LINE_SPACING;
+        }
 
         // Render log lines
         for (int i = 0; i < log_count; ++i) {
@@ -243,13 +264,15 @@ int main(int argc, char* argv[]) {
         SDL_UnlockAudioDevice(deviceId);
         SDL_RenderDrawLines(renderer, points, FFT_SIZE / 2);
 
-        // Highlight detected frequency
-        if (is_detecting_sine) {
-            int freq_bin = (int)(detected_freq / freq_resolution);
-            if (freq_bin >= 0 && freq_bin < FFT_SIZE / 2) {
-                int x = VIS_PADDING + (int)((double)freq_bin / (FFT_SIZE / 2) * vis_width);
-                SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Red highlight
-                SDL_RenderDrawLine(renderer, x, vis_y_start, x, vis_y_end);
+        // Highlight detected frequencies
+        for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
+            if (snapshot[i].active) {
+                int freq_bin = (int)(snapshot[i].freq / freq_resolution);
+                if (freq_bin >= 0 && freq_bin < FFT_SIZE / 2) {
+                    int x = VIS_PADDING + (int)((double)freq_bin / (FFT_SIZE / 2) * vis_width);
+                    SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Red highlight
+                    SDL_RenderDrawLine(renderer, x, vis_y_start, x, vis_y_end);
+                }
             }
         }
         // --- End of visualization ---
@@ -266,6 +289,37 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
+void update_track(double freq, double purity, Uint32 now) {
+    int match = -1;
+    for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
+        if (tracks[i].start_time != 0 && fabs(tracks[i].freq - freq) <= FREQUENCY_TOLERANCE) {
+            match = i;
+            break;
+        }
+    }
+    if (match == -1) {
+        for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
+            if (tracks[i].start_time == 0) {
+                match = i;
+                break;
+            }
+        }
+    }
+    if (match != -1) {
+        if (tracks[match].start_time == 0) {
+            tracks[match].freq = freq;
+            tracks[match].purity = purity * 100.0;
+            tracks[match].start_time = now;
+            tracks[match].last_seen = now;
+            tracks[match].active = false;
+        } else {
+            tracks[match].freq = tracks[match].freq * 0.9 + freq * 0.1;
+            tracks[match].purity = purity * 100.0;
+            tracks[match].last_seen = now;
+        }
+    }
+}
+
 // --- Audio Callback Function ---
 // This function is called by SDL whenever it has a new chunk of audio data
 void audio_callback(void* userdata, Uint8* stream, int len) {
@@ -277,66 +331,84 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
     fftw_execute(p);
 
     double max_power = 0.0;
-    int max_index = -1;
     double total_power = 0.0;
 
+    double powers[FFT_SIZE / 2];
     for (int i = 0; i < FFT_SIZE / 2; ++i) {
         double real = out[i][0];
         double imag = out[i][1];
         double power = real * real + imag * imag;
+        powers[i] = power;
         total_power += power;
-
         if (power > max_power) {
             max_power = power;
-            max_index = i;
         }
     }
 
     if (max_power > 0) {
-        // Normalize magnitudes for visualization
         for (int i = 0; i < FFT_SIZE / 2; ++i) {
-            double real = out[i][0];
-            double imag = out[i][1];
-            double power = real * real + imag * imag;
-            magnitudes[i] = power / max_power;
+            magnitudes[i] = powers[i] / max_power;
         }
     }
 
-    if (max_index != -1 && total_power > 0) {
-        double current_detected_freq = max_index * freq_resolution;
+    // Find top peaks
+    int top_indices[MAX_TRACKED_SINES];
+    double top_powers[MAX_TRACKED_SINES];
+    for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
+        top_indices[i] = -1;
+        top_powers[i] = 0.0;
+    }
+
+    for (int i = 0; i < FFT_SIZE / 2; ++i) {
+        double power = powers[i];
+        // insert into top arrays if large
+        for (int j = 0; j < MAX_TRACKED_SINES; ++j) {
+            if (power > top_powers[j]) {
+                for (int k = MAX_TRACKED_SINES - 1; k > j; --k) {
+                    top_powers[k] = top_powers[k - 1];
+                    top_indices[k] = top_indices[k - 1];
+                }
+                top_powers[j] = power;
+                top_indices[j] = i;
+                break;
+            }
+        }
+    }
+
+    Uint32 now = SDL_GetTicks();
+    for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
+        int idx = top_indices[i];
+        if (idx == -1 || total_power == 0.0) {
+            continue;
+        }
+        double freq = idx * freq_resolution;
         double peak_power = 0.0;
-        // Sum power of peak and its immediate neighbors for a more robust detection
         for (int j = -1; j <= 1; ++j) {
-            int idx = max_index + j;
-            if (idx >= 0 && idx < FFT_SIZE / 2) {
-                double real = out[idx][0];
-                double imag = out[idx][1];
-                peak_power += real * real + imag * imag;
+            int n = idx + j;
+            if (n >= 0 && n < FFT_SIZE / 2) {
+                peak_power += powers[n];
             }
         }
         double purity = peak_power / total_power;
-
-        Uint32 now = SDL_GetTicks();
         if (purity > DETECT_THRESHOLD &&
-            current_detected_freq >= SINE_WAVE_MIN_HZ &&
-            current_detected_freq <= SINE_WAVE_MAX_HZ) {
+            freq >= SINE_WAVE_MIN_HZ &&
+            freq <= SINE_WAVE_MAX_HZ) {
+            update_track(freq, purity, now);
+        }
+    }
 
-            if (detection_start_time == 0) {
-                detection_start_time = now;
+    // update track states
+    for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
+        if (tracks[i].start_time != 0 && !tracks[i].active) {
+            if (now - tracks[i].start_time >= (Uint32)persistence_threshold_ms) {
+                tracks[i].active = true;
+                tracks[i].last_seen = now;
             }
-            Uint32 elapsed = now - detection_start_time;
-            if (elapsed >= (Uint32)persistence_threshold_ms) {
-                if (fabs(current_detected_freq - detected_freq) > FREQUENCY_TOLERANCE) {
-                    detected_freq = current_detected_freq;
-                    detected_purity = purity * 100.0;
-                }
-                is_detecting_sine = true;
-            } else {
-                is_detecting_sine = false;
+        } else if (tracks[i].active) {
+            if (now - tracks[i].last_seen >= (Uint32)persistence_threshold_ms) {
+                tracks[i].active = false;
+                tracks[i].start_time = 0;
             }
-        } else {
-            detection_start_time = 0;
-            is_detecting_sine = false;
         }
     }
 }
