@@ -1,6 +1,6 @@
 # sinDet
 
-sinDet is a simple real-time sine wave detector. It uses SDL2 for audio capture and display and FFTW3 for frequency analysis to show the strongest sine component in incoming audio. A basic spectrum view visualizes the incoming audio so you can see what the application is hearing.
+sinDet is a real-time sine wave detector. It uses SDL2 for audio capture and display and FFTW3 for frequency analysis to identify and track sine components in incoming audio. The detector can lock onto multiple tones simultaneously, tolerating volume fluctuations much like a phase locked loop. A basic spectrum view visualizes the incoming audio so you can see what the application is hearing.
 
 ## Building
 
