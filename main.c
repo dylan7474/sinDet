@@ -94,7 +94,7 @@ int main(int argc, char* argv[]) {
     // Suppress less important SDL log messages such as unrecognized key warnings
     SDL_LogSetOutputFunction(sdl_log_filter, NULL);
     SDL_LogSetAllPriority(SDL_LOG_PRIORITY_ERROR);
-    printf("Initializing SDL...\n");
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Initializing SDL...");
     // Initialize both Audio and Video subsystems
     if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO) < 0) {
         log_error("Failed to initialize SDL");
@@ -141,10 +141,10 @@ int main(int argc, char* argv[]) {
         cleanup();
         return 1;
     }
-    printf("Successfully initialized graphical interface.\n");
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Successfully initialized graphical interface.");
 
     // --- 4. FFT Setup ---
-    printf("Setting up FFTW3...\n");
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Setting up FFTW3...");
     out = (fftw_complex*)fftw_malloc(sizeof(fftw_complex) * (FFT_SIZE / 2 + 1));
     if (!out) {
         log_error("FFTW memory allocation failed for output.");
@@ -153,14 +153,14 @@ int main(int argc, char* argv[]) {
     }
     p = fftw_plan_dft_r2c_1d(FFT_SIZE, pcm_buffer, out, FFTW_ESTIMATE);
     freq_resolution = (double)SAMPLE_RATE / (double)FFT_SIZE;
-    printf("Frequency resolution: %.2f Hz\n", freq_resolution);
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Frequency resolution: %.2f Hz", freq_resolution);
 
     for (int i = 0; i < FFT_SIZE; ++i) {
         hann_window[i] = 0.5 * (1.0 - cos((2.0 * M_PI * i) / (FFT_SIZE - 1)));
     }
     
     // --- 5. Audio Device Setup ---
-    printf("Opening audio device...\n");
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Opening audio device...");
     SDL_AudioSpec want, have;
     SDL_zero(want);
     want.freq = SAMPLE_RATE;
@@ -176,7 +176,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     
-    printf("Successfully opened audio device.\n");
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Successfully opened audio device.");
     SDL_PauseAudioDevice(deviceId, 0); // Start capturing
 
     // --- 6. Main Loop with Event Handling and Rendering ---
@@ -268,6 +268,7 @@ int main(int argc, char* argv[]) {
         render_text("UP/DOWN: adjust persistence", 100, 100, color_white);
         render_text("LEFT/RIGHT: adjust gain", 100, 120, color_white);
         render_text("Z/X: low cutoff  C/V: high cutoff", 100, 140, color_white);
+        render_text("A: toggle averaging", 100, 160, color_white);
         char persist_text[80];
         sprintf(persist_text, "Persistence: %d ms", persistence_threshold_ms);
         render_text(persist_text, 100, 180, color_white);
@@ -277,6 +278,9 @@ int main(int argc, char* argv[]) {
         char band_text[120];
         sprintf(band_text, "Band-pass: %.0f-%.0f Hz", bandpass_low_hz, bandpass_high_hz);
         render_text(band_text, 100, 220, color_white);
+        char avg_text[80];
+        sprintf(avg_text, "Averaging: %s", averaging_enabled ? "ON" : "OFF");
+        render_text(avg_text, 100, 240, color_white);
 
         // Render detection result
         int line_y = 260;
