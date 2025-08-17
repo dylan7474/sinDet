@@ -7,6 +7,10 @@
 #include <signal.h>
 #include <string.h>
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 // Include the separate font header file that you have.
 // We will assume the font data is provided in this header file.
 #include "font.h"
@@ -28,6 +32,7 @@ static double pcm_buffer[CHUNK_SIZE];
 static fftw_complex* out;
 static fftw_plan p;
 static double freq_resolution;
+static double hann_window[FFT_SIZE];
 
 static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
@@ -35,7 +40,7 @@ static TTF_Font* font = NULL;
 
 // Global state variables for graphical output
 static double detected_freq = 0.0;
-static double detected_magnitude = 0.0;
+static double detected_purity = 0.0;
 static bool is_detecting_sine = false;
 static bool keep_running = true;
 
@@ -113,6 +118,10 @@ int main(int argc, char* argv[]) {
     p = fftw_plan_dft_r2c_1d(FFT_SIZE, pcm_buffer, out, FFTW_ESTIMATE);
     freq_resolution = (double)SAMPLE_RATE / (double)FFT_SIZE;
     printf("Frequency resolution: %.2f Hz\n", freq_resolution);
+
+    for (int i = 0; i < FFT_SIZE; ++i) {
+        hann_window[i] = 0.5 * (1.0 - cos((2.0 * M_PI * i) / (FFT_SIZE - 1)));
+    }
     
     // --- 5. Audio Device Setup ---
     printf("Opening audio device...\n");
@@ -165,7 +174,7 @@ int main(int argc, char* argv[]) {
         if (is_detecting_sine) {
             if (!last_detection || fabs(detected_freq - last_logged_freq) > FREQUENCY_TOLERANCE) {
                 char log_text[128];
-                sprintf(log_text, "Detected %.2f Hz (%.2f%%)", detected_freq, detected_magnitude);
+                sprintf(log_text, "Detected %.2f Hz (%.2f%%)", detected_freq, detected_purity * 100.0);
                 add_log_line(log_text, (SDL_Color){0, 255, 0, 255});
                 last_logged_freq = detected_freq;
             }
@@ -191,7 +200,7 @@ int main(int argc, char* argv[]) {
         SDL_Color result_color;
 
         if (is_detecting_sine) {
-            sprintf(output_text, "Sine wave detected! Freq: %.2f Hz | Purity: %.2f%%", detected_freq, detected_magnitude);
+            sprintf(output_text, "Sine wave detected! Freq: %.2f Hz | Purity: %.2f%%", detected_freq, detected_purity * 100.0);
             result_color = (SDL_Color){0, 255, 0, 255}; // Green
         } else {
             sprintf(output_text, "No pure sine wave detected. Listening...");
@@ -220,29 +229,31 @@ int main(int argc, char* argv[]) {
 // This function is called by SDL whenever it has a new chunk of audio data
 void audio_callback(void* userdata, Uint8* stream, int len) {
     Sint16* pcm_stream = (Sint16*)stream;
-    
+
     for (int i = 0; i < CHUNK_SIZE; ++i) {
-        pcm_buffer[i] = (double)pcm_stream[i] / MAX_AMPLITUDE; 
+        pcm_buffer[i] = ((double)pcm_stream[i] / MAX_AMPLITUDE) * hann_window[i];
     }
     fftw_execute(p);
 
-    double max_magnitude = 0.0;
+    double max_power = 0.0;
     int max_index = -1;
     double total_power = 0.0;
 
     for (int i = 0; i < FFT_SIZE / 2; ++i) {
-        double magnitude = sqrt(out[i][0] * out[i][0] + out[i][1] * out[i][1]);
-        total_power += magnitude;
+        double real = out[i][0];
+        double imag = out[i][1];
+        double power = real * real + imag * imag;
+        total_power += power;
 
-        if (magnitude > max_magnitude) {
-            max_magnitude = magnitude;
+        if (power > max_power) {
+            max_power = power;
             max_index = i;
         }
     }
 
     if (max_index != -1 && total_power > 0) {
         double current_detected_freq = max_index * freq_resolution;
-        double purity = (max_magnitude / total_power) * 100;
+        double purity = max_power / total_power;
 
         Uint32 now = SDL_GetTicks();
         if (purity > DETECT_THRESHOLD &&
@@ -256,7 +267,7 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
             if (elapsed >= (Uint32)persistence_threshold_ms) {
                 if (fabs(current_detected_freq - detected_freq) > FREQUENCY_TOLERANCE) {
                     detected_freq = current_detected_freq;
-                    detected_magnitude = purity;
+                    detected_purity = purity;
                 }
                 is_detecting_sine = true;
             } else {
