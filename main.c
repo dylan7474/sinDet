@@ -30,6 +30,7 @@
 #define VIS_HEIGHT 150         // Height of the visualization area
 #define VIS_PADDING 20         // Padding for the visualization
 #define AVERAGING_ALPHA 0.1     // Smoothing factor for optional averaging filter
+#define CONFIG_FILE "sinDet.cfg"
 
 // --- Global Variables ---
 static SDL_AudioDeviceID deviceId = 0;
@@ -91,12 +92,15 @@ void prune_expired_logs(Uint32 now);
 void update_track(double freq, double purity, Uint32 now);
 void cleanup();
 void sdl_log_filter(void* userdata, int category, SDL_LogPriority priority, const char* message);
+void save_config(void);
+void load_config(void);
 
 int main(int argc, char* argv[]) {
     // --- 1. Initialization ---
     // Suppress less important SDL log messages such as unrecognized key warnings
     SDL_LogSetOutputFunction(sdl_log_filter, NULL);
     SDL_LogSetAllPriority(SDL_LOG_PRIORITY_ERROR);
+    load_config();
     SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Initializing SDL...");
     // Initialize both Audio and Video subsystems
     if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO) < 0) {
@@ -375,6 +379,13 @@ int main(int argc, char* argv[]) {
         SDL_RenderFillRect(renderer, &band_rect);
         SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
 
+        int squelch_y = vis_y_end - (int)(squelch_threshold * VIS_HEIGHT);
+        if (squelch_y < vis_y_start) squelch_y = vis_y_start;
+        if (squelch_y > vis_y_end) squelch_y = vis_y_end;
+        SDL_Color sq_color = squelch_enabled ? (SDL_Color){255, 255, 0, 255} : (SDL_Color){100, 100, 100, 255};
+        SDL_SetRenderDrawColor(renderer, sq_color.r, sq_color.g, sq_color.b, sq_color.a);
+        SDL_RenderDrawLine(renderer, VIS_PADDING, squelch_y, VIS_PADDING + vis_width, squelch_y);
+
         // Highlight detected frequencies
         for (int i = 0; i < MAX_TRACKED_SINES; ++i) {
             if (snapshot[i].active) {
@@ -395,6 +406,7 @@ int main(int argc, char* argv[]) {
     }
     
     // --- 7. Cleanup ---
+    save_config();
     cleanup();
 
     return 0;
@@ -613,6 +625,49 @@ void render_text(const char* text, int x, int y, SDL_Color color) {
 
     SDL_FreeSurface(surface);
     SDL_DestroyTexture(texture);
+}
+
+void save_config(void) {
+    FILE* f = fopen(CONFIG_FILE, "w");
+    if (!f) {
+        return;
+    }
+    fprintf(f, "persistence_threshold_ms=%d\n", persistence_threshold_ms);
+    fprintf(f, "input_gain_db=%.2f\n", input_gain_db);
+    fprintf(f, "bandpass_low_hz=%.2f\n", bandpass_low_hz);
+    fprintf(f, "bandpass_high_hz=%.2f\n", bandpass_high_hz);
+    fprintf(f, "averaging_enabled=%d\n", averaging_enabled ? 1 : 0);
+    fprintf(f, "squelch_enabled=%d\n", squelch_enabled ? 1 : 0);
+    fprintf(f, "squelch_threshold=%.2f\n", squelch_threshold);
+    fclose(f);
+}
+
+void load_config(void) {
+    FILE* f = fopen(CONFIG_FILE, "r");
+    if (!f) {
+        return;
+    }
+    char line[128];
+    while (fgets(line, sizeof(line), f)) {
+        int i;
+        double d;
+        if (sscanf(line, "persistence_threshold_ms=%d", &i) == 1) {
+            persistence_threshold_ms = i;
+        } else if (sscanf(line, "input_gain_db=%lf", &d) == 1) {
+            input_gain_db = d;
+        } else if (sscanf(line, "bandpass_low_hz=%lf", &d) == 1) {
+            bandpass_low_hz = d;
+        } else if (sscanf(line, "bandpass_high_hz=%lf", &d) == 1) {
+            bandpass_high_hz = d;
+        } else if (sscanf(line, "averaging_enabled=%d", &i) == 1) {
+            averaging_enabled = i ? true : false;
+        } else if (sscanf(line, "squelch_enabled=%d", &i) == 1) {
+            squelch_enabled = i ? true : false;
+        } else if (sscanf(line, "squelch_threshold=%lf", &d) == 1) {
+            squelch_threshold = d;
+        }
+    }
+    fclose(f);
 }
 
 void sdl_log_filter(void* userdata, int category, SDL_LogPriority priority, const char* message) {

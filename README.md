@@ -36,6 +36,13 @@ make -f Makefile.win
 - **A Key**: Toggle an averaging filter that smooths the spectrum to reduce noise.
 - **S Key**: Toggle squelch. **D/F Keys**: Decrease or increase the squelch threshold.
 
+The current squelch level is shown as a horizontal line on the frequency display.
+
+## Configuration
+
+sinDet writes the current values of persistence, gain, band-pass limits, averaging and squelch settings to `sinDet.cfg` on exit and
+loads them on startup. The file is created automatically if it does not exist so your adjustments persist between runs.
+
 ## Roadmap
 
 - Cross-platform packaging and binary releases.
