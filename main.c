@@ -26,6 +26,9 @@
 #define SINE_WAVE_MAX_HZ 20000
 #define FONT_SIZE 12
 
+#define VIS_HEIGHT 150         // Height of the visualization area
+#define VIS_PADDING 20         // Padding for the visualization
+
 // --- Global Variables ---
 static SDL_AudioDeviceID deviceId = 0;
 static double pcm_buffer[CHUNK_SIZE];
@@ -79,7 +82,8 @@ int main(int argc, char* argv[]) {
     }
 
     // --- 2. Window and Renderer Setup ---
-    window = SDL_CreateWindow("Sine Wave Detector", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 800, 600, SDL_WINDOW_FULLSCREEN);
+    int window_width = 800, window_height = 600;
+    window = SDL_CreateWindow("Sine Wave Detector", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, window_width, window_height, SDL_WINDOW_FULLSCREEN_DESKTOP);
     if (!window) {
         log_error("Failed to create window");
         cleanup();
@@ -91,6 +95,8 @@ int main(int argc, char* argv[]) {
         cleanup();
         return 1;
     }
+
+    SDL_GetWindowSize(window, &window_width, &window_height);
 
     // --- 3. Font Setup ---
     // Load the font from the embedded font data in font.h
@@ -175,7 +181,7 @@ int main(int argc, char* argv[]) {
         if (is_detecting_sine) {
             if (!last_detection || fabs(detected_freq - last_logged_freq) > FREQUENCY_TOLERANCE) {
                 char log_text[128];
-                sprintf(log_text, "Detected %.2f Hz (%.2f%%)", detected_freq, detected_purity * 100.0);
+                sprintf(log_text, "Detected %.2f Hz (%.2f%% purity)", detected_freq, detected_purity);
                 add_log_line(log_text, (SDL_Color){0, 255, 0, 255});
                 last_logged_freq = detected_freq;
             }
@@ -201,7 +207,7 @@ int main(int argc, char* argv[]) {
         SDL_Color result_color;
 
         if (is_detecting_sine) {
-            sprintf(output_text, "Sine wave detected! Freq: %.2f Hz | Purity: %.2f%%", detected_freq, detected_purity * 100.0);
+            sprintf(output_text, "Sine wave detected! Freq: %.2f Hz | Purity: %.2f%%", detected_freq, detected_purity);
             result_color = (SDL_Color){0, 255, 0, 255}; // Green
         } else {
             sprintf(output_text, "No pure sine wave detected. Listening...");
@@ -214,18 +220,39 @@ int main(int argc, char* argv[]) {
             render_text(log_lines[i], 100, 300 + i * LINE_SPACING, log_colors[i]);
         }
 
-        // Render simple frequency spectrum visualization
-        int w, h;
-        SDL_GetRendererOutputSize(renderer, &w, &h);
-        int spectrum_height = 100;
+        // --- Render frequency spectrum visualization ---
+        int vis_y_start = window_height - VIS_HEIGHT - VIS_PADDING;
+        int vis_y_end = window_height - VIS_PADDING;
+        int vis_width = window_width - VIS_PADDING * 2;
+
+        // Draw background for visualization
+        SDL_Rect vis_bg = {VIS_PADDING, vis_y_start, vis_width, VIS_HEIGHT};
+        SDL_SetRenderDrawColor(renderer, 30, 30, 30, 255);
+        SDL_RenderFillRect(renderer, &vis_bg);
+
+        // Draw frequency line graph
         SDL_SetRenderDrawColor(renderer, 0, 128, 255, 255);
-        SDL_LockAudioDevice(deviceId);
+        SDL_Point points[FFT_SIZE / 2];
+        SDL_LockAudioDevice(deviceId); // Lock audio to safely access magnitudes
         for (int i = 0; i < FFT_SIZE / 2; ++i) {
-            int x = (int)((double)i / (FFT_SIZE / 2) * w);
-            int bar_height = (int)(magnitudes[i] * spectrum_height);
-            SDL_RenderDrawLine(renderer, x, h - 1, x, h - 1 - bar_height);
+            int x = VIS_PADDING + (int)((double)i / (FFT_SIZE / 2) * vis_width);
+            int bar_height = (int)(magnitudes[i] * VIS_HEIGHT);
+            points[i].x = x;
+            points[i].y = vis_y_end - bar_height;
         }
         SDL_UnlockAudioDevice(deviceId);
+        SDL_RenderDrawLines(renderer, points, FFT_SIZE / 2);
+
+        // Highlight detected frequency
+        if (is_detecting_sine) {
+            int freq_bin = (int)(detected_freq / freq_resolution);
+            if (freq_bin >= 0 && freq_bin < FFT_SIZE / 2) {
+                int x = VIS_PADDING + (int)((double)freq_bin / (FFT_SIZE / 2) * vis_width);
+                SDL_SetRenderDrawColor(renderer, 255, 0, 0, 255); // Red highlight
+                SDL_RenderDrawLine(renderer, x, vis_y_start, x, vis_y_end);
+            }
+        }
+        // --- End of visualization ---
         
         // Update the screen
         SDL_RenderPresent(renderer);
@@ -257,7 +284,6 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         double real = out[i][0];
         double imag = out[i][1];
         double power = real * real + imag * imag;
-        magnitudes[i] = power;
         total_power += power;
 
         if (power > max_power) {
@@ -266,13 +292,26 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         }
     }
 
+    if (max_power > 0) {
+        // Normalize magnitudes for visualization
+        for (int i = 0; i < FFT_SIZE / 2; ++i) {
+            double real = out[i][0];
+            double imag = out[i][1];
+            double power = real * real + imag * imag;
+            magnitudes[i] = power / max_power;
+        }
+    }
+
     if (max_index != -1 && total_power > 0) {
         double current_detected_freq = max_index * freq_resolution;
         double peak_power = 0.0;
+        // Sum power of peak and its immediate neighbors for a more robust detection
         for (int j = -1; j <= 1; ++j) {
             int idx = max_index + j;
             if (idx >= 0 && idx < FFT_SIZE / 2) {
-                peak_power += magnitudes[idx];
+                double real = out[idx][0];
+                double imag = out[idx][1];
+                peak_power += real * real + imag * imag;
             }
         }
         double purity = peak_power / total_power;
@@ -289,7 +328,7 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
             if (elapsed >= (Uint32)persistence_threshold_ms) {
                 if (fabs(current_detected_freq - detected_freq) > FREQUENCY_TOLERANCE) {
                     detected_freq = current_detected_freq;
-                    detected_purity = purity;
+                    detected_purity = purity * 100.0;
                 }
                 is_detecting_sine = true;
             } else {
@@ -300,16 +339,11 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
             is_detecting_sine = false;
         }
     }
-
-    if (max_power > 0) {
-        for (int i = 0; i < FFT_SIZE / 2; ++i) {
-            magnitudes[i] /= max_power;
-        }
-    }
 }
 
 // --- Helper Functions ---
 void add_log_line(const char* text, SDL_Color color) {
+    SDL_LockAudioDevice(deviceId); // Prevent race condition with audio thread
     if (log_count < MAX_LOG_LINES) {
         strncpy(log_lines[log_count], text, sizeof(log_lines[log_count]) - 1);
         log_lines[log_count][sizeof(log_lines[log_count]) - 1] = '\0';
@@ -324,6 +358,7 @@ void add_log_line(const char* text, SDL_Color color) {
         log_lines[MAX_LOG_LINES - 1][sizeof(log_lines[MAX_LOG_LINES - 1]) - 1] = '\0';
         log_colors[MAX_LOG_LINES - 1] = color;
     }
+    SDL_UnlockAudioDevice(deviceId);
 }
 
 void render_text(const char* text, int x, int y, SDL_Color color) {
