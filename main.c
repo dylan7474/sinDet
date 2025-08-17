@@ -33,6 +33,7 @@ static fftw_complex* out;
 static fftw_plan p;
 static double freq_resolution;
 static double hann_window[FFT_SIZE];
+static double magnitudes[FFT_SIZE / 2]; // Stores normalized spectrum magnitudes for visualization
 
 static SDL_Window* window = NULL;
 static SDL_Renderer* renderer = NULL;
@@ -212,6 +213,19 @@ int main(int argc, char* argv[]) {
         for (int i = 0; i < log_count; ++i) {
             render_text(log_lines[i], 100, 300 + i * LINE_SPACING, log_colors[i]);
         }
+
+        // Render simple frequency spectrum visualization
+        int w, h;
+        SDL_GetRendererOutputSize(renderer, &w, &h);
+        int spectrum_height = 100;
+        SDL_SetRenderDrawColor(renderer, 0, 128, 255, 255);
+        SDL_LockAudioDevice(deviceId);
+        for (int i = 0; i < FFT_SIZE / 2; ++i) {
+            int x = (int)((double)i / (FFT_SIZE / 2) * w);
+            int bar_height = (int)(magnitudes[i] * spectrum_height);
+            SDL_RenderDrawLine(renderer, x, h - 1, x, h - 1 - bar_height);
+        }
+        SDL_UnlockAudioDevice(deviceId);
         
         // Update the screen
         SDL_RenderPresent(renderer);
@@ -243,11 +257,18 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
         double real = out[i][0];
         double imag = out[i][1];
         double power = real * real + imag * imag;
+        magnitudes[i] = power;
         total_power += power;
 
         if (power > max_power) {
             max_power = power;
             max_index = i;
+        }
+    }
+
+    if (max_power > 0) {
+        for (int i = 0; i < FFT_SIZE / 2; ++i) {
+            magnitudes[i] /= max_power;
         }
     }
 
