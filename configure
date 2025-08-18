@@ -20,9 +20,11 @@ check_pkg() {
 }
 
 check_cmd gcc build-essential
+check_cmd make build-essential
 check_cmd sdl2-config libsdl2-dev
 check_cmd pkg-config pkg-config
 
+check_pkg sdl2 libsdl2-dev
 check_pkg SDL2_ttf libsdl2-ttf-dev
 check_pkg fftw3 libfftw3-dev
 
