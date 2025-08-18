@@ -6,8 +6,16 @@
 CC = x86_64-w64-mingw32-gcc
 TARGET = sinDet.exe
 SRCS = main.c
-CFLAGS = -Wall -O2 -I/usr/x86_64-w64-mingw32/include/SDL2 -I/usr/x86_64-w64-mingw32/include
-LDFLAGS = -L/usr/x86_64-w64-mingw32/lib -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf -lfftw3-3 -lm
+CFLAGS = -Wall -O2 \
+         -I/usr/x86_64-w64-mingw32/include/SDL2 \
+         -I/usr/x86_64-w64-mingw32/include \
+         -DCURL_STATICLIB
+
+LDFLAGS = -L/usr/x86_64-w64-mingw32/lib \
+          -lmingw32 -lSDL2main -lSDL2 -lSDL2_ttf -lSDL2_image -lSDL2_mixer \
+          -lfftw3 -lcurl -lbcrypt -lpthread -lws2_32 -lcrypt32 \
+          -lwldap32 -lgdi32 -lwinmm -limm32 -lole32 \
+          -loleaut32 -lversion -lsetupapi -lm -mwindows -static
 
 all: $(TARGET)
 
