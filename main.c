@@ -31,6 +31,8 @@
 #define VIS_PADDING 20         // Padding for the visualization
 #define AVERAGING_ALPHA 0.1     // Smoothing factor for optional averaging filter
 #define CONFIG_FILE "sinDet.cfg"
+#define MORSE_BUFFER_SIZE 256
+#define DOT_EST_ALPHA 0.2
 
 // --- Global Variables ---
 static SDL_AudioDeviceID deviceId = 0;
@@ -54,11 +56,16 @@ typedef struct {
     double purity;
     Uint32 start_time;
     Uint32 last_seen;
+    Uint32 tone_start;
     bool active;
 } SineTrack;
 
 static SineTrack tracks[MAX_TRACKED_SINES];
 static bool keep_running = true;
+
+static double estimated_dot_ms = 120.0;
+static char morse_buffer[MORSE_BUFFER_SIZE];
+static int morse_length = 0;
 
 // Logging support
 #define MAX_LOG_LINES 20
@@ -325,6 +332,21 @@ int main(int argc, char* argv[]) {
             line_y += LINE_SPACING;
         }
 
+        // Render Morse buffer and estimated speed
+        char morse_snapshot[MORSE_BUFFER_SIZE];
+        double dot_snapshot;
+        SDL_LockAudioDevice(deviceId);
+        strncpy(morse_snapshot, morse_buffer, MORSE_BUFFER_SIZE);
+        morse_snapshot[MORSE_BUFFER_SIZE - 1] = '\0';
+        dot_snapshot = estimated_dot_ms;
+        SDL_UnlockAudioDevice(deviceId);
+        render_text(morse_snapshot, 100, line_y, color_white);
+        line_y += LINE_SPACING;
+        char dotlen_text[80];
+        sprintf(dotlen_text, "Dot length: %.0f ms", dot_snapshot);
+        render_text(dotlen_text, 100, line_y, color_white);
+        line_y += LINE_SPACING;
+
         // Render log lines
         prune_expired_logs(SDL_GetTicks());
         for (int i = 0; i < log_count; ++i) {
@@ -434,6 +456,7 @@ void update_track(double freq, double purity, Uint32 now) {
             tracks[match].purity = purity * 100.0;
             tracks[match].start_time = now;
             tracks[match].last_seen = now;
+            tracks[match].tone_start = 0;
             tracks[match].active = false;
         } else {
             tracks[match].freq = tracks[match].freq * 0.9 + freq * 0.1;
@@ -555,11 +578,26 @@ void audio_callback(void* userdata, Uint8* stream, int len) {
             if (now - tracks[i].start_time >= (Uint32)persistence_threshold_ms) {
                 tracks[i].active = true;
                 tracks[i].last_seen = now;
+                tracks[i].tone_start = now;
             }
         } else if (tracks[i].active) {
             if (now - tracks[i].last_seen >= (Uint32)persistence_threshold_ms) {
+                Uint32 tone_duration = tracks[i].last_seen - tracks[i].tone_start;
+                char symbol;
+                if (tone_duration < estimated_dot_ms * 2.0) {
+                    symbol = '.';
+                    estimated_dot_ms = (1.0 - DOT_EST_ALPHA) * estimated_dot_ms + DOT_EST_ALPHA * tone_duration;
+                } else {
+                    symbol = '-';
+                    estimated_dot_ms = (1.0 - DOT_EST_ALPHA) * estimated_dot_ms + DOT_EST_ALPHA * (tone_duration / 3.0);
+                }
+                if (morse_length < MORSE_BUFFER_SIZE - 1) {
+                    morse_buffer[morse_length++] = symbol;
+                    morse_buffer[morse_length] = '\0';
+                }
                 tracks[i].active = false;
                 tracks[i].start_time = 0;
+                tracks[i].tone_start = 0;
             }
         }
     }
